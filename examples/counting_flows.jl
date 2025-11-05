@@ -44,7 +44,7 @@ end
 # Parameters
 T = Float32
 n_samples = 400
-k = 20  # minimum offset to keep X1 > X0 >= 0
+k = 500  # minimum offset to keep X1 > X0 >= 0
 
 sampleX0(n) = rand(0:k, 2, n)
 sampleX1(n) = (Flowfusion.random_discrete_cat(n; d=32, lo=-2.5, hi=2.5) .+ k)
@@ -63,10 +63,10 @@ opt_state = Flux.setup(AdamW(eta=eta), model)
 # ------------------------------
 # Training loop
 # ------------------------------
-iters = 200
+iters = 10000
 @showprogress for i in 1:iters
-    X0 = DiscreteState(32, round.(Int, sampleX0(n_samples)))
-    X1 = DiscreteState(32, round.(Int, sampleX1(n_samples)))
+    X0 = sampleX0(n_samples)
+    X1 = sampleX1(n_samples)
     t = rand(T, n_samples)
     Xt = bridge(P, X0, X1, t)
 
@@ -81,77 +81,46 @@ iters = 200
     end
 end
 
-# ------------------------------
 # Sampling
-# ------------------------------
 n_inference_samples = 1000
-X0 = DiscreteState(32, round.(Int, sampleX0(n_inference_samples)))
-steps = 0f0:0.01f0:1f0
-paths = Tracker()
+X0 = sampleX0(n_inference_samples)
+steps = 0f0:0.05f0:1f0   # smaller step for smoother lines (optional)
 
-@time samp = gen(P, X0, model, steps; tracker=paths)
+using ProgressMeter
+p = Progress(length(steps) - 1; desc="Sampling", dt=0.2)
 
-# ------------------------------
-# Visualization
-# ------------------------------
-pl = scatter(tensor(X0)[1, :], tensor(X0)[2, :],
-    color="blue", alpha=0.5, label="Initial", size=(400, 400))
-scatter!(tensor(samp)[1, :], tensor(samp)[2, :],
-    color="green", alpha=0.2, label="Sampled")
-
-tvec = stack_tracker(paths, :t)
-xttraj = stack_tracker(paths, :xt)
-for i in 1:100:n_inference_samples
-    plot!(xttraj[1, i, :], xttraj[2, i, :], color="red", alpha=0.1, label=:none)
+# Collector that stores times and states
+mutable struct TrajCollector
+    t::Vector{Float32}
+    xt::Vector{Matrix{Int}}
 end
-plot!(pl, [-10], [-10], color="red", label="Trajectory", alpha=0.4)
-pl
-savefig("countingflow.svg")
+collector() = TrajCollector(Float32[], Matrix{Int}[])
 
+function collect!(C::TrajCollector, t, Xt, _Rhat)
+    push!(C.t, Float32(t))
+    push!(C.xt, Int.(Xt))
+end
 
+C = collector()
+tracker = (t, Xt, Rhat) -> begin
+    collect!(C, t, Xt, Rhat)
+    next!(p; showvalues=[(:t, t)])
+end
 
+@time samp = gen(P, X0, model, steps; tracker=tracker)
 
+# Visualization
+using Plots
+pl = scatter(X0[1, :], X0[2, :], color=:blue, alpha=0.5, label="Initial", size=(400, 400))
+scatter!(pl, samp[1, :], samp[2, :], color=:green, alpha=0.4, label="Sampled")
 
+# Draw a few trajectories
+for j in 1:min(5, size(X0, 2))  # plot up to 5 paths
+    xs = [C.xt[k][1, j] for k in 1:length(C.t)]
+    ys = [C.xt[k][2, j] for k in 1:length(C.t)]
+    plot!(pl, xs, ys, color=:red, alpha=0.3, label=nothing)
+end
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+plot!(pl, [-10], [-10], color=:red, label="Trajectory")  # legend handle
+display(pl)
+savefig(pl, "countingflow.svg")
