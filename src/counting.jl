@@ -30,7 +30,7 @@ function step(P::CountingFlow, Xₜ::AbstractArray{<:Integer}, R̂ₜ::AbstractA
 end
 
 function floss(P::CountingFlow, R̂ₜ::AbstractMatrix, X₁::AbstractMatrix{<:Integer}, Xₜ::AbstractMatrix{<:Integer}, c)
-    return scaledmaskedmean(abs2.(R̂ₜ .- X₁ .- Xₜ), c, nothing)
+    return scaledmaskedmean(abs2.(R̂ₜ .- (X₁ .- Xₜ)), c, nothing)
 end
 
 function gen(P::CountingFlow,
