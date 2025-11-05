@@ -7,7 +7,7 @@ Pkg.activate(".")
 using Revise
 #Pkg.develop(path="../../ForwardBackward/")
 #Pkg.develop(path="../")
-using ForwardBackward, Flowfusion, NNlib, Flux, RandomFeatureMaps, Optimisers, Plots, ProgressMeter
+using ForwardBackward, Flowfusion, NNlib, Flux, RandomFeatureMaps, Optimisers, Plots, ProgressMeter, Statistics
 #include("../src/counting.jl")   # ← your updated process file defining CountingFlow, floss_R, etc.
 # ------------------------------
 # Model: predicts residual R̂ = X̂₁ - Xₜ
@@ -17,7 +17,7 @@ struct RModel{A}
 end
 Flux.@layer RModel
 
-function RModel(; embeddim=64, spacedim=2, layers=3)
+function RModel(; embeddim=64, spacedim=2, layers=5)
     embed_time = Chain(RandomFourierFeatures(1 => embeddim, 1f0),
         Dense(embeddim => embeddim, swish))
     embed_state = Chain(Dense(spacedim => embeddim, swish))
@@ -44,10 +44,11 @@ end
 # Parameters
 T = Float32
 n_samples = 400
-k = 500  # minimum offset to keep X1 > X0 >= 0
+k = 25  # minimum offset to keep X1 > X0 >= 0
 
 sampleX0(n) = rand(0:k, 2, n)
 sampleX1(n) = (Flowfusion.random_discrete_cat(n; d=32, lo=-2.5, hi=2.5) .+ k)
+
 
 # Hazard CDF F(t): monotone [0,1]
 F(t) = t^2
@@ -56,14 +57,14 @@ P = CountingFlow(F)
 # ------------------------------
 # Model / Optimizer
 # ------------------------------
-model = RModel(embeddim=128, spacedim=2, layers=3)
+model = RModel(embeddim=128, spacedim=2, layers=5)
 eta = 0.001
 opt_state = Flux.setup(AdamW(eta=eta), model)
 
 # ------------------------------
 # Training loop
 # ------------------------------
-iters = 10000
+iters = 100000
 @showprogress for i in 1:iters
     X0 = sampleX0(n_samples)
     X1 = sampleX1(n_samples)
@@ -93,12 +94,14 @@ p = Progress(length(steps) - 1; desc="Sampling", dt=0.2)
 mutable struct TrajCollector
     t::Vector{Float32}
     xt::Vector{Matrix{Int}}
+    Rt::Vector{Matrix{Float32}}
 end
-collector() = TrajCollector(Float32[], Matrix{Int}[])
+collector() = TrajCollector(Float32[], Matrix{Int}[], Matrix{Float32}[])
 
-function collect!(C::TrajCollector, t, Xt, _Rhat)
+function collect!(C::TrajCollector, t, Xt, Rhat)
     push!(C.t, Float32(t))
     push!(C.xt, Int.(Xt))
+    push!(C.Rt, Rhat)
 end
 
 C = collector()
@@ -110,12 +113,18 @@ end
 @time samp = gen(P, X0, model, steps; tracker=tracker)
 
 # Visualization
+sample = sampleX1(1000)
+pl = scatter(sample[1, :], sample[2, :])
+savefig(pl, "x1_dist.svg")
+
 using Plots
-pl = scatter(X0[1, :], X0[2, :], color=:blue, alpha=0.5, label="Initial", size=(400, 400))
-scatter!(pl, samp[1, :], samp[2, :], color=:green, alpha=0.4, label="Sampled")
+pl = scatter(X0[1, :], X0[2, :], color=:blue, alpha=0.1, label="Initial", size=(400, 400))
+scatter!(pl, samp[1, :], samp[2, :], color=:green, alpha=0.1, label="Learned Distribution")
+#scatter!(pl, sample[1, :], sample[2, :], color=:red, alpha=0.2, label="Data Distribution")
+
 
 # Draw a few trajectories
-for j in 1:min(5, size(X0, 2))  # plot up to 5 paths
+for j in 1:min(50, size(X0, 2))  # plot up to 5 paths
     xs = [C.xt[k][1, j] for k in 1:length(C.t)]
     ys = [C.xt[k][2, j] for k in 1:length(C.t)]
     plot!(pl, xs, ys, color=:red, alpha=0.3, label=nothing)
@@ -124,3 +133,8 @@ end
 plot!(pl, [-10], [-10], color=:red, label="Trajectory")  # legend handle
 display(pl)
 savefig(pl, "countingflow.svg")
+mean_r_hat = [mean(Rt, dims=2) for Rt in C.Rt]
+mean_r_hat = hcat(mean_r_hat...)
+pl = plot(C.t, mean_r_hat[1, :], label="x-direction")
+plot!(C.t, mean_r_hat[2, :], label="y-direction")
+savefig(pl, "mean_r_hat.svg")
