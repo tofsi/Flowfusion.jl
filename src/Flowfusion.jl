@@ -57,7 +57,9 @@ export
     batch,
     regroup,
     combine,
-    CountingFlow
+    CountingFlow,
+    BirthDeathFlow,
+    CountingState
 
 
 #Useful for demos etc:
