@@ -39,8 +39,9 @@ function bridge(P::CountingFlow,
 end
 
 function bridge(P::BirthDeathFlow, Z₀::AbstractArray{<:Integer}, X₁::AbstractArray{<:Integer}, t::AbstractVector{<:Real})
+    incrementing_coefficient = ifelse.(P.incrementing, 1, -1)
     # Get remaining increment fields for all components
-    R₀ = (P.X1_to_Z1(X₁) .- Z₀) .* reshape(ifelse.(P.incrementing, 1, -1), :, 1, 1)
+    R₀ = (P.X1_to_Z1(X₁) .- Z₀) .* reshape(incrementing_coefficient, :, 1, 1)
     @assert all(R₀ .>= 0) "Counts must be nondecreasing"
     Zₜ = similar(Z₀)
     n_processes, n_dim, batch_size = size(Z₀)
@@ -48,7 +49,7 @@ function bridge(P::BirthDeathFlow, Z₀::AbstractArray{<:Integer}, X₁::Abstrac
     @inbounds for k in 1:batch_size
         p = P.F(t[k])
         @inbounds for i in 1:n_processes, j in 1:n_dim
-            Zₜ[i, j, k] = Z₀[i, j, k] + P.incrementing[i] * rand(Binomial(R₀[i, j, k], Float64(p)))
+            Zₜ[i, j, k] = Z₀[i, j, k] + incrementing_coefficient[i] * rand(Binomial(R₀[i, j, k], Float64(p)))
         end
     end
     return Zₜ
@@ -85,6 +86,7 @@ function step(P::CountingFlow,
 end
 
 function step(P::BirthDeathFlow, Zₜ::AbstractArray{<:Integer}, R̂ₜ::AbstractArray, s₁::Real, s₂::Real)
+    incrementing_coefficient = ifelse.(P.incrementing, 1, -1)
     n_processes, n_dim, batch_size = size(Zₜ)
     Z_next = similar(Zₜ)
     # Conditional hazard cdf at s₂ given survival until s₁:
@@ -92,7 +94,7 @@ function step(P::BirthDeathFlow, Zₜ::AbstractArray{<:Integer}, R̂ₜ::Abstrac
     R̂_int = round.(Int, R̂ₜ)
     n = max.(0, R̂_int)
     @inbounds for i in 1:n_processes, j in 1:n_dim, k in 1:batch_size
-        Z_next[i, j, k] = Zₜ[i, j, k] + P.incrementing[i] * rand(Binomial(n[i, j, k], Float64(p)))
+        Z_next[i, j, k] = Zₜ[i, j, k] + incrementing_coefficient[i] * rand(Binomial(n[i, j, k], Float64(p)))
     end
     return Z_next
 end
