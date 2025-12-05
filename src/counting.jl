@@ -112,12 +112,13 @@ function floss(P::CountingFlow, R̂ₜ::AbstractMatrix, X₁::AbstractMatrix{<:I
     return scaledmaskedmean(abs2.(R̂ₜ .- (X₁ .- Xₜ)), c, nothing)
 end
 
-function floss(P::BirthDeathFlow, R̂ₜ::AbstractArray, X₁::AbstractMatrix{<:Integer}, Zₜ::AbstractMatrix{<:Integer}, c)
-    return scaledmaskedmean(abs2.(R̂ₜ .- (P.X1_to_Z1(X₁) .- Zₜ)), c, nothing)
+function floss(P::BirthDeathFlow, R̂ₜ::AbstractArray, X₁::AbstractMatrix{<:Integer}, Zₜ::AbstractArray{<:Integer}, c)
+    incrementing_array = reshape(ifelse.(P.incrementing, 1, -1), :, 1, 1) # To match convention process, dimension, batch index
+    return scaledmaskedmean(abs2.(R̂ₜ .- incrementing_array .* (P.X1_to_Z1(X₁) .- Zₜ)), c, nothing)
 end
 
 function floss(P::BirthDeathFlow, R̂ₜ::AbstractArray, X₁::AbstractMatrix{<:Integer}, Zₜ::CountingState, c)
-    return scaledmaskedmean(abs2.(R̂ₜ .- (P.X1_to_Z1(X₁) .- Zₜ.state)), c, nothing)
+    return floss(P, R̂ₜ, X₁, Zₜ.state, c)
 end
 
 resolveprediction(R̂ₜ::AbstractArray, Xₜ::CountingState) = R̂ₜ
